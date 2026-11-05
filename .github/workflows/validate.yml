@@ -1,0 +1,28 @@
+name: Validate project
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Verify project metadata
+        run: |
+          test -s README.md
+          test -s COPYING
+          test -f .github/FUNDING.yml
+          grep -q "GNU LESSER GENERAL PUBLIC LICENSE" COPYING
+          grep -q 'ko_fi: xsas1337' .github/FUNDING.yml
+      - name: Compile Python sources
+        run: python -m compileall -q .
