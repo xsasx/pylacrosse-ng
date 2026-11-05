@@ -41,6 +41,9 @@ class SensorReception:
     last_seen: datetime
     internal_packets: int
     external_packets: int
+    first_seen: datetime | None = None
+    last_interval_seconds: float | None = None
+    average_interval_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +252,21 @@ class LaCrosseReceiver:
                 self._last_packet_at = received_at
                 self._valid_packets += 1
                 previous = self._sensor_reception.get(reading.sensor_id)
+                interval = (
+                    max(0.0, (received_at - previous.last_seen).total_seconds())
+                    if previous is not None
+                    else None
+                )
+                average_interval = (
+                    None if previous is None
+                    else (
+                        (
+                            (previous.average_interval_seconds or 0.0)
+                            * (previous.packets - 1)
+                            + interval
+                        ) / previous.packets
+                    )
+                )
                 self._sensor_reception[reading.sensor_id] = SensorReception(
                     sensor_id=reading.sensor_id,
                     packets=1 if previous is None else previous.packets + 1,
@@ -261,6 +279,12 @@ class LaCrosseReceiver:
                         (0 if previous is None else previous.external_packets)
                         + (1 if reading.external_probe else 0)
                     ),
+                    first_seen=(
+                        received_at if previous is None
+                        else previous.first_seen or previous.last_seen
+                    ),
+                    last_interval_seconds=interval,
+                    average_interval_seconds=average_interval,
                 )
             try:
                 self._callback(reading)
