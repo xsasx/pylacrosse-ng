@@ -55,6 +55,21 @@ class ReceptionStatistics:
     sensors: tuple[SensorReception, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SensorActivity:
+    """Current radio-packet freshness of a discovered sensor.
+
+    ACTIVE/STALE describes only radio reception, not USB link health.
+    """
+
+    sensor_id: int
+    status: str
+    age_seconds: float
+    stale_after_seconds: float
+    last_seen: datetime
+    packets: int
+
+
 class LaCrosseReceiver:
     """Read radio packets and recover from serial connection failures.
 
@@ -141,6 +156,53 @@ class LaCrosseReceiver:
                     for sensor_id in sorted(self._sensor_reception)
                 ),
             )
+
+    def sensor_activity(
+        self,
+        *,
+        minimum_timeout: float = 600.0,
+        interval_multiplier: float = 3.0,
+        now: datetime | None = None,
+    ) -> tuple[SensorActivity, ...]:
+        """Calculate ACTIVE/STALE freshness per radio ID on demand.
+
+        The threshold is the greater of the minimum timeout and the
+        observed average packet interval multiplied by the configured
+        tolerance. A sensor with just one packet uses the minimum timeout.
+
+        This method does not alter receiver status or reconnect behavior.
+        It measures per-radio-ID reception (both TX25TP-IT channels together).
+        """
+        if not math.isfinite(minimum_timeout) or minimum_timeout <= 0:
+            raise ValueError("minimum_timeout must be finite and positive")
+        if not math.isfinite(interval_multiplier) or interval_multiplier < 1:
+            raise ValueError("interval_multiplier must be finite and >= 1")
+        if now is None:
+            now = datetime.now(timezone.utc)
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ValueError("now must be timezone-aware")
+
+        sensors = self.reception_statistics.sensors
+        result = []
+        for sensor in sensors:
+            threshold = minimum_timeout
+            if sensor.average_interval_seconds is not None:
+                threshold = max(
+                    threshold,
+                    sensor.average_interval_seconds * interval_multiplier,
+                )
+            age = max(0.0, (now - sensor.last_seen).total_seconds())
+            result.append(
+                SensorActivity(
+                    sensor_id=sensor.sensor_id,
+                    status="ACTIVE" if age < threshold else "STALE",
+                    age_seconds=age,
+                    stale_after_seconds=threshold,
+                    last_seen=sensor.last_seen,
+                    packets=sensor.packets,
+                )
+            )
+        return tuple(result)
 
     def _set_status(self, status: str) -> None:
         with self._health_lock:
