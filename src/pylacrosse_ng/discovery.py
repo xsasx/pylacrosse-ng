@@ -8,7 +8,7 @@ library never auto-configures discovered radio IDs or reassigns sensors.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import threading
 
 from .parser import LaCrosseReading
@@ -37,6 +37,16 @@ class DiscoveredSensor:
     internal_packets: int
     external_packets: int
     last_new_battery_seen: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class BatteryReassignmentCandidate:
+    """Unconfigured radio ID with a recent genuine new-battery event."""
+
+    radio_id: int
+    last_new_battery_seen: datetime
+    last_seen: datetime
+    packets: int
 
 
 class SensorRegistry:
@@ -162,6 +172,106 @@ class SensorRegistry:
             )
             self._discovered[radio_id] = snapshot
             return snapshot
+
+    def battery_reassignment_candidates(
+        self,
+        old_radio_id: int,
+        *,
+        since: datetime,
+        now: datetime | None = None,
+        max_age: timedelta = timedelta(minutes=10),
+    ) -> tuple[BatteryReassignmentCandidate, ...]:
+        """Suggest fresh new-battery IDs without changing any membership.
+
+        Only observed, unconfigured and non-ignored IDs are proposed.
+        A received new-battery flag is a hint, never proof of ownership:
+        an application must obtain explicit user confirmation.
+        """
+        old_radio_id = _validate_radio_id(old_radio_id)
+        now = self._validate_reassignment_window(since, now, max_age)
+        with self._lock:
+            if old_radio_id not in self._configured:
+                raise ValueError("old radio ID must be configured")
+            result = []
+            for radio_id, sensor in self._discovered.items():
+                event = sensor.last_new_battery_seen
+                if (
+                    radio_id == old_radio_id
+                    or radio_id in self._configured
+                    or radio_id in self._ignored
+                    or event is None
+                    or event < since
+                    or event > now
+                    or now - event > max_age
+                ):
+                    continue
+                result.append(
+                    BatteryReassignmentCandidate(
+                        radio_id=radio_id,
+                        last_new_battery_seen=event,
+                        last_seen=sensor.last_seen,
+                        packets=sensor.packets,
+                    )
+                )
+            return tuple(sorted(result, key=lambda item: item.radio_id))
+
+    def confirm_battery_reassignment(
+        self,
+        old_radio_id: int,
+        new_radio_id: int,
+        *,
+        since: datetime,
+        now: datetime | None = None,
+        max_age: timedelta = timedelta(minutes=10),
+    ) -> frozenset[int]:
+        """Atomically replace a configured radio ID after user confirmation.
+
+        Revalidates the fresh battery event and memberships under the lock,
+        preventing a stale UI candidate or an ignored ID from being assigned.
+        Returns the updated configured IDs for the caller to persist.
+        This does not update any Home Assistant entity or device registry.
+        """
+        old_radio_id = _validate_radio_id(old_radio_id)
+        new_radio_id = _validate_radio_id(new_radio_id)
+        now = self._validate_reassignment_window(since, now, max_age)
+        with self._lock:
+            if old_radio_id == new_radio_id:
+                raise ValueError("new radio ID must differ from old radio ID")
+            if old_radio_id not in self._configured:
+                raise ValueError("old radio ID must be configured")
+            if new_radio_id in self._configured:
+                raise ValueError("new radio ID already configured")
+            if new_radio_id in self._ignored:
+                raise ValueError("new radio ID is ignored")
+            sensor = self._discovered.get(new_radio_id)
+            event = sensor.last_new_battery_seen if sensor else None
+            if (
+                event is None
+                or event < since
+                or event > now
+                or now - event > max_age
+            ):
+                raise ValueError("new radio ID has no fresh battery event")
+            self._configured.remove(old_radio_id)
+            self._configured.add(new_radio_id)
+            return frozenset(self._configured)
+
+    @staticmethod
+    def _validate_reassignment_window(
+        since: datetime,
+        now: datetime | None,
+        max_age: timedelta,
+    ) -> datetime:
+        if now is None:
+            now = datetime.now(timezone.utc)
+        for name, value in (("since", since), ("now", now)):
+            if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError(f"{name} must be timezone-aware")
+        if not isinstance(max_age, timedelta) or not timedelta(0) < max_age:
+            raise ValueError("max_age must be a positive timedelta")
+        if since > now:
+            raise ValueError("since must not be later than now")
+        return now
 
     def discoveries(
         self, *, include_ignored: bool = False
