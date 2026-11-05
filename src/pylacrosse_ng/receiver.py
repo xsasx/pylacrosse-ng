@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
+import math
 import threading
 
 from .connection import SerialConnection, SerialConnectionError
@@ -45,15 +46,23 @@ class LaCrosseReceiver:
         *,
         retry_initial: float = 1.0,
         retry_max: float = 60.0,
+        retry_multiplier: float = 2.0,
+        auto_reconnect: bool = True,
     ) -> None:
-        if retry_initial <= 0:
-            raise ValueError("retry_initial must be positive")
-        if retry_max < retry_initial:
-            raise ValueError("retry_max must be >= retry_initial")
+        if not math.isfinite(retry_initial) or retry_initial <= 0:
+            raise ValueError("retry_initial must be a finite positive number")
+        if not math.isfinite(retry_max) or retry_max < retry_initial:
+            raise ValueError("retry_max must be finite and >= retry_initial")
+        if not math.isfinite(retry_multiplier) or retry_multiplier < 1:
+            raise ValueError("retry_multiplier must be finite and >= 1")
+        if not isinstance(auto_reconnect, bool):
+            raise TypeError("auto_reconnect must be a boolean")
         self._connection = connection
         self._callback = callback
         self._retry_initial = retry_initial
         self._retry_max = retry_max
+        self._retry_multiplier = retry_multiplier
+        self._auto_reconnect = auto_reconnect
         self._stop_event = threading.Event()
         self._connected_event = threading.Event()
         self._lifecycle_lock = threading.Lock()
@@ -172,12 +181,12 @@ class LaCrosseReceiver:
                             "Could not cleanly close JeeLink serial port"
                         )
 
-                if self._stop_event.is_set():
+                if self._stop_event.is_set() or not self._auto_reconnect:
                     break
                 # Event.wait() makes the recovery delay cancelable by stop().
                 if self._stop_event.wait(delay):
                     break
-                delay = min(delay * 2, self._retry_max)
+                delay = min(delay * self._retry_multiplier, self._retry_max)
         finally:
             self._connected_event.clear()
             self._set_status("stopped")
