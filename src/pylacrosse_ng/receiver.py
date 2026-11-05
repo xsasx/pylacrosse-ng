@@ -15,6 +15,7 @@ import math
 import threading
 
 from .connection import SerialConnection, SerialConnectionError
+from .discovery import SensorRegistry
 from .parser import LaCrosseReading, parse_telegram
 from .quality import TemperatureQualityResult, TemperatureQualityRules, assess_temperature
 
@@ -89,6 +90,7 @@ class LaCrosseReceiver:
         auto_reconnect: bool = True,
         quality_rules: TemperatureQualityRules | None = None,
         quality_callback: Callable[[LaCrosseReading, TemperatureQualityResult], None] | None = None,
+        sensor_registry: SensorRegistry | None = None,
     ) -> None:
         if not math.isfinite(retry_initial) or retry_initial <= 0:
             raise ValueError("retry_initial must be a finite positive number")
@@ -106,6 +108,7 @@ class LaCrosseReceiver:
         self._auto_reconnect = auto_reconnect
         self._quality_rules = quality_rules
         self._quality_callback = quality_callback
+        self._sensor_registry = sensor_registry if sensor_registry is not None else SensorRegistry()
         # Reference values are isolated by radio ID and probe channel.
         self._accepted_temperatures: dict[tuple[int, bool], float] = {}
         self._stop_event = threading.Event()
@@ -122,6 +125,15 @@ class LaCrosseReceiver:
         self._valid_packets = 0
         self._invalid_packets = 0
         self._sensor_reception: dict[int, SensorReception] = {}
+
+    @property
+    def sensor_registry(self) -> SensorRegistry:
+        """Registry populated automatically for each valid radio telegram.
+
+        Applications can set configured/ignored radio IDs explicitly; the
+        receiver never changes memberships on its own.
+        """
+        return self._sensor_registry
 
     @property
     def is_running(self) -> bool:
@@ -317,6 +329,10 @@ class LaCrosseReceiver:
                     self._invalid_packets += 1
                 continue
             received_at = datetime.now(timezone.utc)
+            # Keep discovery synchronized with the same reception timestamp
+            # used by receiver statistics. Ignored IDs remain observable in
+            # the registry without being automatically configured.
+            self._sensor_registry.observe(reading, received_at=received_at)
             with self._health_lock:
                 self._last_packet_at = received_at
                 self._valid_packets += 1
