@@ -24,6 +24,8 @@ jobs:
           test -f .github/FUNDING.yml
           grep -q "GNU LESSER GENERAL PUBLIC LICENSE" COPYING
           grep -q 'ko_fi: xsas1337' .github/FUNDING.yml
+      - name: Install project and test dependencies
+        run: python -m pip install -e '.[test]'
       - name: Compile Python sources
         run: python -m compileall -q .
       - name: Run parser regression tests
