@@ -8,6 +8,8 @@ settings will be added as the library develops.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timezone
 import logging
 import threading
 
@@ -15,6 +17,18 @@ from .connection import SerialConnection, SerialConnectionError
 from .parser import LaCrosseReading, parse_telegram
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ReceiverHealth:
+    """Thread-safe receiver diagnostics snapshot."""
+
+    status: str
+    last_packet_at: datetime | None
+    last_connected_at: datetime | None
+    connection_attempts: int
+    successful_connections: int
+    last_error: str | None
 
 
 class LaCrosseReceiver:
@@ -44,6 +58,13 @@ class LaCrosseReceiver:
         self._connected_event = threading.Event()
         self._lifecycle_lock = threading.Lock()
         self._thread: threading.Thread | None = None
+        self._health_lock = threading.Lock()
+        self._status = "stopped"
+        self._last_packet_at: datetime | None = None
+        self._last_connected_at: datetime | None = None
+        self._connection_attempts = 0
+        self._successful_connections = 0
+        self._last_error: str | None = None
 
     @property
     def is_running(self) -> bool:
@@ -56,6 +77,23 @@ class LaCrosseReceiver:
         """Whether the receive worker has an open serial connection."""
         return self._connected_event.is_set()
 
+    @property
+    def health(self) -> ReceiverHealth:
+        """Return consistent receiver diagnostics without exposing mutable state."""
+        with self._health_lock:
+            return ReceiverHealth(
+                status=self._status,
+                last_packet_at=self._last_packet_at,
+                last_connected_at=self._last_connected_at,
+                connection_attempts=self._connection_attempts,
+                successful_connections=self._successful_connections,
+                last_error=self._last_error,
+            )
+
+    def _set_status(self, status: str) -> None:
+        with self._health_lock:
+            self._status = status
+
     def start(self) -> None:
         """Start receiving in the background; repeated starts are safe."""
         with self._lifecycle_lock:
@@ -63,6 +101,7 @@ class LaCrosseReceiver:
                 return
             self._stop_event.clear()
             self._connected_event.clear()
+            self._set_status("connecting")
             self._thread = threading.Thread(
                 target=self._run,
                 name="pylacrosse-ng-receiver",
@@ -84,20 +123,31 @@ class LaCrosseReceiver:
             thread.join()
             self._thread = None
             self._connected_event.clear()
+            self._set_status("stopped")
 
     def _run(self) -> None:
         delay = self._retry_initial
         try:
             while not self._stop_event.is_set():
                 try:
+                    with self._health_lock:
+                        self._connection_attempts += 1
                     self._connection.open()
                     self._connected_event.set()
+                    with self._health_lock:
+                        self._status = "connected"
+                        self._successful_connections += 1
+                        self._last_connected_at = datetime.now(timezone.utc)
+                        self._last_error = None
                     delay = self._retry_initial
                     _LOGGER.info("JeeLink serial receiver connected")
                     self._read_until_failure()
                 except SerialConnectionError as exc:
                     self._connected_event.clear()
                     if not self._stop_event.is_set():
+                        with self._health_lock:
+                            self._status = "reconnecting"
+                            self._last_error = str(exc)
                         _LOGGER.warning("JeeLink serial receiver unavailable: %s", exc)
                 finally:
                     self._connected_event.clear()
@@ -114,6 +164,7 @@ class LaCrosseReceiver:
                 delay = min(delay * 2, self._retry_max)
         finally:
             self._connected_event.clear()
+            self._set_status("stopped")
 
     def _read_until_failure(self) -> None:
         while not self._stop_event.is_set():
@@ -126,6 +177,8 @@ class LaCrosseReceiver:
             reading = parse_telegram(line)
             if reading is None:
                 continue
+            with self._health_lock:
+                self._last_packet_at = datetime.now(timezone.utc)
             try:
                 self._callback(reading)
             except Exception:
