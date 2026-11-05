@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling>=1.26,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pylacrosse-ng"
+version = "0.1.0.dev0"
+description = "Modern Python library for LaCrosse and Technoline sensors via JeeLink"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "LGPL-2.1-or-later" }
+authors = [{ name = "xsasx" }]
+keywords = ["lacrosse", "technoline", "jeelink", "serial", "sensors"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: System :: Hardware",
+]
+dependencies = ["pyserial>=3.5"]
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/xsasx/pylacrosse-ng"
+Repository = "https://github.com/xsasx/pylacrosse-ng"
+Issues = "https://github.com/xsasx/pylacrosse-ng/issues"
+"Home Assistant integration" = "https://github.com/xsasx/home-assistant-lacrosse-jeelink"
+Funding = "https://ko-fi.com/xsas1337"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pylacrosse_ng"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
