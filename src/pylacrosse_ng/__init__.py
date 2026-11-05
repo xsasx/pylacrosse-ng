@@ -17,17 +17,38 @@ Basic usage::
 from __future__ import annotations
 
 from .connection import SerialConnection, SerialConnectionError
+from .discovery import BatteryReassignmentCandidate, DiscoveredSensor, SensorRegistry
 from .parser import LaCrosseReading, parse_telegram
-from .receiver import LaCrosseReceiver, ReceiverHealth
+from .quality import (
+    TemperatureQualityResult,
+    TemperatureQualityRules,
+    assess_temperature,
+)
+from .receiver import (
+    LaCrosseReceiver,
+    ReceiverHealth,
+    ReceptionStatistics,
+    SensorActivity,
+    SensorReception,
+)
 
 __version__ = "0.1.0.dev0"
 
 __all__ = [
+    "BatteryReassignmentCandidate",
+    "DiscoveredSensor",
     "LaCrosseReading",
     "LaCrosseReceiver",
     "ReceiverHealth",
+    "ReceptionStatistics",
+    "SensorActivity",
+    "SensorReception",
+    "SensorRegistry",
     "SerialConnection",
     "SerialConnectionError",
+    "TemperatureQualityResult",
+    "TemperatureQualityRules",
     "__version__",
+    "assess_temperature",
     "parse_telegram",
 ]
