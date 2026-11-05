@@ -149,12 +149,28 @@ class LaCrosseReceiver:
                             self._status = "reconnecting"
                             self._last_error = str(exc)
                         _LOGGER.warning("JeeLink serial receiver unavailable: %s", exc)
+                except Exception as exc:
+                    # Unexpected transport/parser failures must not terminate
+                    # the worker silently. Release the port and retry.
+                    self._connected_event.clear()
+                    if not self._stop_event.is_set():
+                        with self._health_lock:
+                            self._status = "reconnecting"
+                            self._last_error = (
+                                f"{type(exc).__name__}: {exc}"
+                            )
+                        _LOGGER.exception(
+                            "Unexpected JeeLink receiver error; retrying"
+                        )
                 finally:
                     self._connected_event.clear()
                     try:
                         self._connection.close()
-                    except SerialConnectionError:
-                        _LOGGER.warning("Could not cleanly close JeeLink serial port")
+                    except Exception:
+                        # A failed cleanup must not prevent later retries.
+                        _LOGGER.exception(
+                            "Could not cleanly close JeeLink serial port"
+                        )
 
                 if self._stop_event.is_set():
                     break
