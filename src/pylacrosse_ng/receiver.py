@@ -32,6 +32,26 @@ class ReceiverHealth:
     last_error: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class SensorReception:
+    """Immutable packet statistics for a discovered radio ID."""
+
+    sensor_id: int
+    packets: int
+    last_seen: datetime
+    internal_packets: int
+    external_packets: int
+
+
+@dataclass(frozen=True, slots=True)
+class ReceptionStatistics:
+    """Immutable receiver-wide packet statistics."""
+
+    valid_packets: int
+    invalid_packets: int
+    sensors: tuple[SensorReception, ...]
+
+
 class LaCrosseReceiver:
     """Read radio packets and recover from serial connection failures.
 
@@ -74,6 +94,9 @@ class LaCrosseReceiver:
         self._connection_attempts = 0
         self._successful_connections = 0
         self._last_error: str | None = None
+        self._valid_packets = 0
+        self._invalid_packets = 0
+        self._sensor_reception: dict[int, SensorReception] = {}
 
     @property
     def is_running(self) -> bool:
@@ -97,6 +120,23 @@ class LaCrosseReceiver:
                 connection_attempts=self._connection_attempts,
                 successful_connections=self._successful_connections,
                 last_error=self._last_error,
+            )
+
+    @property
+    def reception_statistics(self) -> ReceptionStatistics:
+        """Return per-sensor packet counts and invalid telegram statistics.
+
+        Sensor IDs are discovered from valid packets. Classification into
+        configured, ignored, or unknown sensors belongs to the caller.
+        """
+        with self._health_lock:
+            return ReceptionStatistics(
+                valid_packets=self._valid_packets,
+                invalid_packets=self._invalid_packets,
+                sensors=tuple(
+                    self._sensor_reception[sensor_id]
+                    for sensor_id in sorted(self._sensor_reception)
+                ),
             )
 
     def _set_status(self, status: str) -> None:
@@ -201,9 +241,27 @@ class LaCrosseReceiver:
 
             reading = parse_telegram(line)
             if reading is None:
+                with self._health_lock:
+                    self._invalid_packets += 1
                 continue
+            received_at = datetime.now(timezone.utc)
             with self._health_lock:
-                self._last_packet_at = datetime.now(timezone.utc)
+                self._last_packet_at = received_at
+                self._valid_packets += 1
+                previous = self._sensor_reception.get(reading.sensor_id)
+                self._sensor_reception[reading.sensor_id] = SensorReception(
+                    sensor_id=reading.sensor_id,
+                    packets=1 if previous is None else previous.packets + 1,
+                    last_seen=received_at,
+                    internal_packets=(
+                        (0 if previous is None else previous.internal_packets)
+                        + (0 if reading.external_probe else 1)
+                    ),
+                    external_packets=(
+                        (0 if previous is None else previous.external_packets)
+                        + (1 if reading.external_probe else 0)
+                    ),
+                )
             try:
                 self._callback(reading)
             except Exception:
