@@ -16,6 +16,7 @@ import threading
 
 from .connection import SerialConnection, SerialConnectionError
 from .parser import LaCrosseReading, parse_telegram
+from .quality import TemperatureQualityResult, TemperatureQualityRules, assess_temperature
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,6 +87,8 @@ class LaCrosseReceiver:
         retry_max: float = 60.0,
         retry_multiplier: float = 2.0,
         auto_reconnect: bool = True,
+        quality_rules: TemperatureQualityRules | None = None,
+        quality_callback: Callable[[LaCrosseReading, TemperatureQualityResult], None] | None = None,
     ) -> None:
         if not math.isfinite(retry_initial) or retry_initial <= 0:
             raise ValueError("retry_initial must be a finite positive number")
@@ -101,6 +104,10 @@ class LaCrosseReceiver:
         self._retry_max = retry_max
         self._retry_multiplier = retry_multiplier
         self._auto_reconnect = auto_reconnect
+        self._quality_rules = quality_rules
+        self._quality_callback = quality_callback
+        # Reference values are isolated by radio ID and probe channel.
+        self._accepted_temperatures: dict[tuple[int, bool], float] = {}
         self._stop_event = threading.Event()
         self._connected_event = threading.Event()
         self._lifecycle_lock = threading.Lock()
@@ -348,6 +355,23 @@ class LaCrosseReceiver:
                     last_interval_seconds=interval,
                     average_interval_seconds=average_interval,
                 )
+            # Quality checks are opt-in and never suppress original readings.
+            # Rejected readings never replace the last accepted reference.
+            if self._quality_rules is not None or self._quality_callback is not None:
+                channel = (reading.sensor_id, reading.external_probe)
+                result = assess_temperature(
+                    reading,
+                    rules=self._quality_rules,
+                    previous_temperature=self._accepted_temperatures.get(channel),
+                )
+                if result.accepted:
+                    self._accepted_temperatures[channel] = reading.temperature
+                if self._quality_callback is not None:
+                    try:
+                        self._quality_callback(reading, result)
+                    except Exception:
+                        _LOGGER.exception("JeeLink quality callback failed")
+
             try:
                 self._callback(reading)
             except Exception:
