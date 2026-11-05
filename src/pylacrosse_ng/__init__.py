@@ -1,11 +1,33 @@
-"""pylacrosse-ng: modern JeeLink / LaCrosse receiver library.
+"""Public API for pylacrosse-ng.
 
-The public API is under development. No receiver or sensor interfaces are
-exposed yet; they will be added with tests as the project evolves.
+The API is experimental until the first stable library release.
+
+Basic usage::
+
+    from pylacrosse_ng import LaCrosseReceiver, SerialConnection
+
+    receiver = LaCrosseReceiver(
+        SerialConnection("/dev/ttyUSB0"),
+        callback=lambda reading: print(reading),
+    )
+    receiver.start()
+    # Call receiver.stop() during application shutdown.
 """
 
 from __future__ import annotations
 
+from .connection import SerialConnection, SerialConnectionError
+from .parser import LaCrosseReading, parse_telegram
+from .receiver import LaCrosseReceiver, ReceiverHealth
+
 __version__ = "0.1.0.dev0"
 
-__all__ = ["__version__"]
+__all__ = [
+    "LaCrosseReading",
+    "LaCrosseReceiver",
+    "ReceiverHealth",
+    "SerialConnection",
+    "SerialConnectionError",
+    "__version__",
+    "parse_telegram",
+]
