@@ -90,9 +90,19 @@ Receiver health is independent of individual sensor availability. No recent pack
 2. ✅ Set up packaging, LGPL license, and automated regression testing
 3. ✅ Implement serial transport and initial automatic recovery
 4. ✅ Add receiver health snapshots
-5. ⏳ Harden thread/callback lifecycle and verify on real JeeLink hardware
-6. ⏳ Extend sensor and multi-channel compatibility tests
-7. ⏳ Validate the Home Assistant migration and prepare the first release
+5. 🚧 Harden thread/callback lifecycle and verify on real JeeLink hardware
+   - ✅ Automated tests for concurrent start/stop, callback failures, and unexpected receiver errors
+   - ⏳ Validate actual USB unplug/replug, blocked reads, and recovery on physical JeeLink hardware
+6. 🚧 Extend sensor and multi-channel compatibility tests
+   - ✅ TX25TP-IT internal/external channel parsing and automated regression tests
+   - ✅ Per-sensor packet statistics, reception intervals, and adaptive ACTIVE/STALE assessment
+   - ✅ Optional temperature plausibility checks and receiver quality callback tests
+   - ⏳ Expand real-hardware coverage and validate additional sensor models
+7. ⏳ Add reusable sensor discovery and management APIs to the library
+   - ⏳ Configured/ignored/unknown sensor classification and safe battery-change workflows
+8. ⏳ Validate the Home Assistant migration and prepare the first release
+
+*Roadmap checkmarks indicate completed implementation or automated tests, not production hardware validation.*
 
 ## 🏠 Home Assistant integration
 
