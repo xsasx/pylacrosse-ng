@@ -1,0 +1,82 @@
+name: Publish to PyPI (manual, tagged release only)
+
+# Never publishes on pushes, pull requests, or CI.
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag (e.g. v0.1.0b1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish tagged distribution
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/pylacrosse-ng/
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Validate supplied release tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(a[0-9]+|b[0-9]+|rc[0-9]+)?$ ]]; then
+            echo "Release tag must be a v-prefixed stable/prerelease version"
+            exit 1
+          fi
+
+      - name: Checkout the exact release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Ensure tag matches package and runtime versions
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          python - <<'PY'
+          import ast
+          import os
+          from pathlib import Path
+          import tomllib
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          tree = ast.parse(Path("src/pylacrosse_ng/__init__.py").read_text())
+          runtime = next(
+              stmt.value.value for stmt in tree.body
+              if isinstance(stmt, ast.Assign)
+              and any(isinstance(target, ast.Name) and target.id == "__version__"
+                      for target in stmt.targets)
+              and isinstance(stmt.value, ast.Constant)
+          )
+          assert version == runtime == os.environ["RELEASE_TAG"][1:], (
+              "Release tag, package and runtime versions must match"
+          )
+          print("Release tag and package versions match:", version)
+          PY
+
+      - name: Install build tools
+        run: python -m pip install --upgrade build twine
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Check distribution metadata
+        run: python -m twine check --strict dist/*
+
+      - name: Publish with PyPI Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1
