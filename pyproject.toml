@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "pylacrosse-ng"
-version = "0.1.0.dev0"
+version = "0.1.0b1"
 description = "Modern Python library for LaCrosse and Technoline sensors via JeeLink"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = { text = "LGPL-2.1-or-later" }
 authors = [{ name = "xsasx" }]
 keywords = ["lacrosse", "technoline", "jeelink", "serial", "sensors"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
     "Operating System :: OS Independent",
