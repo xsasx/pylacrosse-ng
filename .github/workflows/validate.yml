@@ -44,8 +44,9 @@ jobs:
           from pylacrosse_ng import (
               LaCrosseReading, LaCrosseReceiver, ReceiverHealth,
               SerialConnection, SerialConnectionError, parse_telegram,
+              __version__,
           )
-          assert version("pylacrosse-ng") == "0.1.0.dev0"
+          assert version("pylacrosse-ng") == __version__
           reading = parse_telegram("OK 9 5 1 4 150 45")
           assert isinstance(reading, LaCrosseReading)
           assert reading.sensor_id == 5
